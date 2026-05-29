@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>李大人的菜谱</title>
+    <!-- PWA 配置 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="./manifest.json">
+    
+    <style>
+        :root { --primary: #e67e22; --bg: #fdfaf6; --card: #ffffff; }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: #333; padding-bottom: 80px; overflow-x: hidden; }
+        
+        /* 头部：定制化品牌感 */
+        header { 
+            position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,0.95); 
+            padding: 16px; border-bottom: 2px solid var(--primary);
+            backdrop-filter: blur(10px);
+        }
+        .header-content { text-align: center; }
+        .header-content h1 { margin: 0; font-size: 24px; color: var(--primary); letter-spacing: 1px; }
+        .header-content p { margin: 5px 0 0; font-size: 13px; color: #888; font-weight: 500; }
+        
+        /* 搜索框 */
+        .search-area { margin-top: 15px; }
+        .search-area input { 
+            width: 100%; padding: 12px; border: none; border-radius: 12px; 
+            background: #f0f0f0; font-size: 16px; box-sizing: border-box;
+            outline: none; transition: background 0.3s;
+        }
+        .search-area input:focus { background: #e8e8e8; }
+
+        /* 菜单展示列表 */
+        .recipe-grid { 
+            padding: 16px; display: grid; 
+            grid-template-columns: repeat(2, 1fr); gap: 14px; 
+        }
+        .recipe-card { 
+            background: var(--card); border-radius: 20px; overflow: hidden; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.06); position: relative;
+            transition: transform 0.2s;
+        }
+        .recipe-card:active { transform: scale(0.98); }
+        .recipe-card img { width: 100%; height: 150px; object-fit: cover; border-bottom: 1px solid #f0f0f0; }
+        .recipe-card-info { padding: 12px; }
+        .recipe-card-title { font-size: 16px; font-weight: bold; margin: 0; color: #2c3e50; }
+        .recipe-card-date { font-size: 11px; color: #999; margin-top: 4px; display: block; }
+
+        .del-btn { 
+            position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; 
+            border: none; border-radius: 50%; background: rgba(0,0,0,0.3); 
+            color: white; font-size: 18px; line-height: 28px; backdrop-filter: blur(4px);
+        }
+
+        /* 录入表单按钮 */
+        .add-fab { 
+            position: fixed; right: 24px; bottom: 24px; width: 64px; height: 64px; 
+            border: none; border-radius: 50%; background: var(--primary); 
+            color: white; font-size: 36px; box-shadow: 0 8px 25px rgba(230,126,34,0.4); 
+            z-index: 500; cursor: pointer;
+        }
+
+        /* 模态框/弹窗 */
+        .modal { 
+            position: fixed; inset: 0; background: rgba(0,0,0,0.7); 
+            display: none; align-items: flex-end; z-index: 1000; 
+        }
+        .modal-content { 
+            width: 100%; max-height: 90vh; background: white; 
+            border-radius: 24px 24px 0 0; padding: 25px; 
+            overflow-y: auto; box-sizing: border-box;
+        }
+        .modal-header { margin-bottom: 20px; text-align: center; }
+        .modal-header h2 { margin: 0; color: var(--primary); font-size: 20px; }
+        
+        .input-group { margin-bottom: 20px; }
+        .input-group label { display: block; margin-bottom: 8px; font-weight: bold; font-size: 14px; color: #666; }
+        input[type="text"], textarea { 
+            width: 100%; padding: 14px; border: 1px solid #f0f0f0; 
+            background: #f9f9f9; border-radius: 14px; box-sizing: border-box; font-size: 16px;
+        }
+        .submit-btn { 
+            width: 100%; padding: 18px; border: none; border-radius: 16px; 
+            background: var(--primary); color: white; font-size: 18px; font-weight: bold; 
+        }
+
+        /* 详情展示层 */
+        #detail-view {
+            position: fixed; inset: 0; background: white; z-index: 2000; 
+            display: none; overflow-y: auto;
+        }
+        .detail-img { width: 100%; height: 60vh; object-fit: cover; }
+        .detail-body { padding: 25px; position: relative; margin-top: -30px; background: white; border-radius: 30px 30px 0 0; }
+        .detail-close { position: fixed; top: 20px; left: 20px; background: rgba(0,0,0,0.5); color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 20px; z-index: 2100; }
+
+        /* 备份栏 */
+        .backup-bar { display: flex; gap: 10px; margin-top: 15px; }
+        .backup-bar button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid #ddd; background: white; font-size: 12px; color: #777; }
+
+        .empty-tips { text-align: center; padding: 100px 0; color: #bbb; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-content">
+        <h1>李大人的菜谱</h1>
+        <p>—— 今日掌勺：牛小友 ——</p>
+    </div>
+    <div class="search-area">
+        <input type="text" id="search" placeholder="搜索牛小友的得意之作...">
+    </div>
+    <div class="backup-bar">
+        <button onclick="exportData()">导出数据(备份)</button>
+        <button onclick="document.getElementById('importInput').click()">恢复数据</button>
+        <input type="file" id="importInput" style="display:none" onchange="importData(this)">
+    </div>
+</header>
+
+<div class="recipe-grid" id="recipeList"></div>
+<div id="emptyTips" class="empty-tips">暂无菜谱，点击下方“+”号开火</div>
+
+<button class="add-fab" onclick="showModal()">+</button>
+
+<!-- 录入弹窗 -->
+<div class="modal" id="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>牛小友新佳肴</h2>
+        </div>
+        <div class="input-group">
+            <label>佳肴名称</label>
+            <input type="text" id="title" placeholder="给这道菜起个响亮的名字">
+        </div>
+        <div class="input-group">
+            <label>拍照/选图</label>
+            <input type="file" id="image" accept="image/*">
+        </div>
+        <div class="input-group">
+            <label>烹饪心得 (李大人的专属点评)</label>
+            <textarea id="note" rows="5" placeholder="火候、调料、或者牛小友想说的话..."></textarea>
+        </div>
+        <button class="submit-btn" onclick="saveRecipe()">收录进菜谱</button>
+        <button onclick="hideModal()" style="width:100%; background:none; border:none; margin-top:15px; color:#aaa;">暂不录入</button>
+    </div>
+</div>
+
+<!-- 详情层 -->
+<div id="detail-view">
+    <button class="detail-close" onclick="hideDetail()">×</button>
+    <img id="detailImg" class="detail-img">
+    <div class="detail-body">
+        <h2 id="detailTitle" style="color:var(--primary); margin:0 0 15px;"></h2>
+        <p id="detailDate" style="color:#999; font-size:12px; margin-bottom:20px;"></p>
+        <div id="detailNote" style="line-height:1.6; white-space: pre-wrap; color:#444;"></div>
+    </div>
+</div>
+
+<script>
+    let db;
+    // 数据库名称：LiNiuKitchen
+    const dbReq = indexedDB.open("LiNiuKitchen", 1);
+
+    dbReq.onupgradeneeded = e => {
+        db = e.target.result;
+        db.createObjectStore("recipes", { keyPath: "id", autoIncrement: true });
+    };
+
+    dbReq.onsuccess = e => {
+        db = e.target.result;
+        renderList();
+    };
+
+    // 保存逻辑
+    async function saveRecipe() {
+        const title = document.getElementById('title').value.trim();
+        const note = document.getElementById('note').value.trim();
+        const file = document.getElementById('image').files[0];
+
+        if (!title || !file) return alert("名字和照片都是必填项哦！");
+
+        const imgData = await compressImage(file);
+        const transaction = db.transaction("recipes", "readwrite");
+        const store = transaction.objectStore("recipes");
+        
+        store.add({
+            title,
+            note,
+            image: imgData,
+            date: new Date().toLocaleDateString()
+        });
+
+        transaction.oncomplete = () => {
+            hideModal();
+            renderList();
+            resetForm();
+        };
+    }
+
+    // 图片压缩逻辑
+    function compressImage(file) {
+        return new Promise(resolve => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = e => {
+                const img = new Image();
+                img.src = e.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const maxW = 1000; // 限制宽度为1000px，兼顾画质与体积
+                    const scale = maxW / img.width;
+                    canvas.width = maxW;
+                    canvas.height = img.height * scale;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL("image/jpeg", 0.75));
+                }
+            }
+        });
+    }
+
+    // 渲染列表
+    function renderList(searchKeyword = "") {
+        const list = document.getElementById('recipeList');
+        const empty = document.getElementById('emptyTips');
+        list.innerHTML = "";
+        let count = 0;
+
+        db.transaction("recipes").objectStore("recipes").openCursor(null, 'prev').onsuccess = e => {
+            const cursor = e.target.result;
+            if (cursor) {
+                const data = cursor.value;
+                if (data.title.toLowerCase().includes(searchKeyword.toLowerCase())) {
+                    const card = document.createElement('div');
+                    card.className = 'recipe-card';
+                    card.innerHTML = `
+                        <img src="${data.image}">
+                        <div class="recipe-card-info">
+                            <p class="recipe-card-title">${data.title}</p>
+                            <span class="recipe-card-date">${data.date}</span>
+                        </div>
+                        <button class="del-btn" onclick="deleteRecipe(event, ${data.id})">×</button>
+                    `;
+                    card.onclick = () => showDetail(data);
+                    list.appendChild(card);
+                    count++;
+                }
+                cursor.continue();
+            } else {
+                empty.style.display = count === 0 ? "block" : "none";
+            }
+        };
+    }
+
+    // 删除逻辑
+    function deleteRecipe(e, id) {
+        e.stopPropagation();
+        if (confirm("确定要删除这道菜吗？")) {
+            db.transaction("recipes", "readwrite").objectStore("recipes").delete(id).onsuccess = () => renderList();
+        }
+    }
+
+    // 详情逻辑
+    function showDetail(data) {
+        document.getElementById('detailTitle').innerText = data.title;
+        document.getElementById('detailDate').innerText = "掌勺：牛小友 | 时间：" + data.date;
+        document.getElementById('detailNote').innerText = data.note || "牛小友只留下了美味，没有留下心得。";
+        document.getElementById('detailImg').src = data.image;
+        document.getElementById('detail-view').style.display = "block";
+    }
+    function hideDetail() { document.getElementById('detail-view').style.display = "none"; }
+
+    // 备份导出 (JSON 格式)
+    function exportData() {
+        const data = [];
+        db.transaction("recipes").objectStore("recipes").openCursor().onsuccess = e => {
+            const cursor = e.target.result;
+            if (cursor) { data.push(cursor.value); cursor.continue(); }
+            else {
+                const blob = new Blob([JSON.stringify(data)], {type: "application/json"});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `李大人的菜谱备份_${new Date().toLocaleDateString()}.json`;
+                a.click();
+            }
+        };
+    }
+
+    // 备份恢复
+    function importData(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const data = JSON.parse(e.target.result);
+                const tx = db.transaction("recipes", "readwrite");
+                data.forEach(item => { delete item.id; tx.objectStore("recipes").add(item); });
+                tx.oncomplete = () => { alert("导入成功！"); renderList(); };
+            } catch (err) { alert("文件格式错误！"); }
+        };
+        reader.readAsText(file);
+    }
+
+    // UI 控制
+    function showModal() { document.getElementById('modal').style.display = 'flex'; }
+    function hideModal() { document.getElementById('modal').style.display = 'none'; }
+    function resetForm() {
+        document.getElementById('title').value = "";
+        document.getElementById('note').value = "";
+        document.getElementById('image').value = "";
+    }
+    document.getElementById('search').oninput = e => renderList(e.target.value);
+
+    // 注册 Service Worker
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js');
+    }
+</script>
+</body>
+</html>
