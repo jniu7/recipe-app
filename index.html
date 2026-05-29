@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>李大人的菜谱</title>
+    <!-- PWA 配置 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
+    
+    <style>
+        :root { --primary: #e67e22; --accent: #d35400; --bg: #fdfaf6; }
+        body { margin: 0; font-family: -apple-system, sans-serif; background: var(--bg); color: #333; padding-bottom: 80px; }
+        
+        /* 头部：体现李大人与牛小友的关系 */
+        header { 
+            position: sticky; top: 0; z-index: 100; background: #fff; 
+            padding: 16px; border-bottom: 2px solid var(--primary);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .brand h1 { margin: 0; font-size: 22px; color: var(--primary); letter-spacing: 1px; }
+        .brand p { margin: 4px 0 0; font-size: 13px; color: #888; font-style: italic; }
+        
+        .search-bar { margin-top: 15px; }
+        .search-bar input { 
+            width: 100%; padding: 12px; border: none; border-radius: 12px; 
+            background: #f0f0f0; font-size: 16px; box-sizing: border-box;
+        }
+        
+        .toolbar { display: flex; gap: 8px; margin-top: 12px; }
+        .toolbar button { 
+            flex: 1; border: 1px solid #ddd; background: white; 
+            padding: 8px; border-radius: 8px; font-size: 12px; color: #666;
+        }
+
+        /* 列表展示 */
+        .recipe-list { padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .card { 
+            background: white; border-radius: 18px; overflow: hidden; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); position: relative;
+        }
+        .card img { width: 100%; height: 140px; object-fit: cover; }
+        .card-info { padding: 10px; }
+        .card-title { font-size: 16px; font-weight: bold; margin: 0; color: #2c3e50; }
+        
+        .del-btn { 
+            position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; 
+            border: none; border-radius: 50%; background: rgba(0,0,0,0.3); color: white;
+        }
+
+        /* 底部操作 */
+        .fab { 
+            position: fixed; right: 24px; bottom: 24px; width: 64px; height: 64px; 
+            border: none; border-radius: 50%; background: var(--primary); 
+            color: white; font-size: 32px; box-shadow: 0 6px 20px rgba(230,126,34,0.3); 
+        }
+
+        /* 弹出表单 */
+        .modal { 
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6); 
+            display: none; align-items: flex-end; z-index: 1000; 
+        }
+        .modal-content { 
+            width: 100%; max-height: 90vh; background: white; 
+            border-radius: 24px 24px 0 0; padding: 24px; overflow-y: auto; 
+        }
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: bold; color: var(--accent); }
+        input[type="text"], textarea { 
+            width: 100%; padding: 14px; border: 1px solid #eee; 
+            background: #f9f9f9; border-radius: 12px; box-sizing: border-box; font-size: 16px; 
+        }
+        .save-btn { 
+            width: 100%; padding: 16px; border: none; border-radius: 14px; 
+            background: var(--primary); color: white; font-size: 18px; font-weight: bold; 
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="brand">
+        <h1>李大人的菜谱</h1>
+        <p>—— 今日掌勺：牛小友 ——</p>
+    </div>
+    <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="搜搜牛小友做过什么...">
+    </div>
+    <div class="toolbar">
+        <button onclick="exportData()">备份到电脑</button>
+        <button onclick="document.getElementById('importFile').click()">恢复菜谱</button>
+        <input type="file" id="importFile" style="display:none" onchange="importData(this)">
+    </div>
+</header>
+
+<div class="recipe-list" id="recipeList"></div>
+
+<button class="fab" onclick="openModal()">+</button>
+
+<div class="modal" id="modal">
+    <div class="modal-content">
+        <h2 style="margin:0 0 20px; color:var(--accent);">牛小友新佳肴</h2>
+        <div class="form-group">
+            <label>佳肴名称</label>
+            <input type="text" id="titleInput" placeholder="例如：牛氏秘制红烧肉">
+        </div>
+        <div class="form-group">
+            <label>成品拍照</label>
+            <input type="file" id="imageInput" accept="image/*">
+        </div>
+        <div class="form-group">
+            <label>牛小友的烹饪心得</label>
+            <textarea id="noteInput" rows="5" placeholder="火候、调料、李大人的点评..."></textarea>
+        </div>
+        <button class="save-btn" onclick="saveRecipe()">收录菜谱</button>
+        <button style="width:100%; background:none; border:none; margin-top:15px; color:#aaa;" onclick="closeModal()">暂不录入</button>
+    </div>
+</div>
+
+<script>
+    let db;
+    // 数据库名：LiAndNiuDB
+    const request = indexedDB.open("LiAndNiuDB", 1);
+
+    request.onupgradeneeded = e => {
+        db = e.target.result;
+        db.createObjectStore("recipes", { keyPath: "id", autoIncrement: true });
+    };
+
+    request.onsuccess = e => {
+        db = e.target.result;
+        loadRecipes();
+    };
+
+    // 保存逻辑
+    async function saveRecipe() {
+        const title = document.getElementById('titleInput').value.trim();
+        const note = document.getElementById('noteInput').value.trim();
+        const file = document.getElementById('imageInput').files[0];
+
+        if (!title || !file) return alert("李大人，名字和照片得全呀！");
+
+        const imgBase64 = await compressImage(file);
+        const transaction = db.transaction("recipes", "readwrite");
+        transaction.objectStore("recipes").add({ 
+            title, 
+            note, 
+            image: imgBase64, 
+            chef: "牛小友", 
+            date: new Date().toLocaleDateString() 
+        });
+        
+        transaction.oncomplete = () => {
+            closeModal();
+            loadRecipes();
+            document.getElementById('titleInput').value = "";
+            document.getElementById('noteInput').value = "";
+            document.getElementById('imageInput').value = "";
+        };
+    }
+
+    // 渲染列表
+    function loadRecipes(filter = "") {
+        const list = document.getElementById('recipeList');
+        list.innerHTML = "";
+        db.transaction("recipes").objectStore("recipes").openCursor(null, 'prev').onsuccess = e => {
+            const cursor = e.target.result;
+            if (cursor) {
+                if (cursor.value.title.includes(filter)) {
+                    const data = cursor.value;
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.innerHTML = `
+                        <img src="${data.image}">
+                        <div class="card-info">
+                            <p class="card-title">${data.title}</p>
+                        </div>
+                        <button class="del-btn" onclick="deleteRecipe(event, ${data.id})">×</button>
+                    `;
+                    card.onclick = () => alert(`【${data.title}】\n掌勺人：${data.chef}\n时间：${data.date}\n\n心得：\n${data.note || '牛小友只顾着做菜，忘了写心得。'}`);
+                    list.appendChild(card);
+                }
+                cursor.continue();
+            }
+        };
+    }
+
+    // 图片处理：缩放至 800px 宽度，jpeg 压缩
+    function compressImage(file) {
+        return new Promise(resolve => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = e => {
+                const img = new Image();
+                img.src = e.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const maxW = 800;
+                    const scale = maxW / img.width;
+                    canvas.width = maxW;
+                    canvas.height = img.height * scale;
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL("image/jpeg", 0.8));
+                }
+            }
+        });
+    }
+
+    function deleteRecipe(e, id) {
+        e.stopPropagation();
+        if (confirm("李大人，确定要撤掉牛小友这道菜吗？")) {
+            db.transaction("recipes", "readwrite").objectStore("recipes").delete(id).onsuccess = () => loadRecipes();
+        }
+    }
+
+    function exportData() {
+        const data = [];
+        db.transaction("recipes").objectStore("recipes").openCursor().onsuccess = e => {
+            const cursor = e.target.result;
+            if (cursor) { data.push(cursor.value); cursor.continue(); }
+            else {
+                const blob = new Blob([JSON.stringify(data)], {type: "application/json"});
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `李大人的菜谱_牛小友备份_${new Date().getTime()}.json`;
+                a.click();
+            }
+        };
+    }
+
+    function importData(input) {
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const data = JSON.parse(e.target.result);
+                const tx = db.transaction("recipes", "readwrite");
+                data.forEach(item => { delete item.id; tx.objectStore("recipes").add(item); });
+                tx.oncomplete = () => { alert("菜谱已悉数恢复！"); loadRecipes(); };
+            } catch(err) { alert("文件不对哦"); }
+        };
+        reader.readAsText(input.files[0]);
+    }
+
+    function openModal() { document.getElementById('modal').style.display = 'flex'; }
+    function closeModal() { document.getElementById('modal').style.display = 'none'; }
+    document.getElementById('searchInput').oninput = e => loadRecipes(e.target.value);
+
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+    }
+</script>
+</body>
+</html>
